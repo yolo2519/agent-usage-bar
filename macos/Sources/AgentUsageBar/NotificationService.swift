@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 @preconcurrency import UserNotifications
 
 struct ProviderThresholdAlert: Equatable {
@@ -82,6 +83,17 @@ private class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
     ) {
         completionHandler([.banner, .sound])
     }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        DispatchQueue.main.async {
+            NSApp.activate(ignoringOtherApps: true)
+            completionHandler()
+        }
+    }
 }
 
 @MainActor
@@ -150,6 +162,7 @@ class NotificationService: ObservableObject {
         updateSettings(for: providerId) { settings in
             settings.fiveHourThresholdPct = clampedOptional(value)
         }
+        firedBucketKeys.remove("\(providerId):primary")
         if value != nil { requestPermission() }
     }
 
@@ -157,6 +170,7 @@ class NotificationService: ObservableObject {
         updateSettings(for: providerId) { settings in
             settings.weeklyThresholdPct = clampedOptional(value)
         }
+        firedBucketKeys.remove("\(providerId):secondary")
         if value != nil { requestPermission() }
     }
 

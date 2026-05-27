@@ -50,6 +50,7 @@ struct AgentUsageBarApp: App {
         Settings {
             SettingsWindowContent(
                 service: service,
+                codexProvider: codexProvider,
                 notificationService: notificationService
             )
         }

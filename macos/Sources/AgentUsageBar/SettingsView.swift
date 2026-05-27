@@ -3,6 +3,7 @@ import ServiceManagement
 
 struct SettingsWindowContent: View {
     @ObservedObject var service: UsageService
+    @ObservedObject var codexProvider: CodexProvider
     @ObservedObject var notificationService: NotificationService
 
     var body: some View {
@@ -22,39 +23,164 @@ struct SettingsWindowContent: View {
             }
 
             Section("Notifications") {
-                ThresholdSlider(
-                    label: "5-hour window",
-                    value: notificationService.threshold5h,
-                    onChange: { notificationService.setThreshold5h($0) }
-                )
-                ThresholdSlider(
-                    label: "7-day window",
-                    value: notificationService.threshold7d,
-                    onChange: { notificationService.setThreshold7d($0) }
-                )
-                ThresholdSlider(
-                    label: "Extra usage",
-                    value: notificationService.thresholdExtra,
-                    onChange: { notificationService.setThresholdExtra($0) }
-                )
+                ForEach(notificationProviderDescriptors) { descriptor in
+                    ProviderNotificationSection(
+                        descriptor: descriptor,
+                        settings: notificationService.settings(for: descriptor.providerId),
+                        notificationService: notificationService
+                    )
+                }
+
+                if notificationService.notificationPermissionDenied {
+                    Label("Notifications are disabled in System Settings.", systemImage: "bell.slash")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
-            if service.isAuthenticated {
-                Section("Account") {
-                    if let email = service.accountEmail {
-                        Text(email)
-                    }
-                    Button("Sign Out") {
-                        service.signOut()
-                    }
-                }
+            Section("Account") {
+                ProviderAccountSection(
+                    providerName: "Claude",
+                    account: service.accountEmail,
+                    plan: nil,
+                    unavailableText: service.isAuthenticated ? nil : "Not signed in",
+                    signOutAction: service.isAuthenticated ? { service.signOut() } : nil
+                )
+
+                Divider()
+
+                ProviderAccountSection(
+                    providerName: "Codex",
+                    account: codexProvider.snapshot?.account,
+                    plan: codexProvider.snapshot?.plan,
+                    unavailableText: codexProvider.lastError == nil ? "Managed by Codex CLI" : "Unavailable",
+                    signOutAction: nil
+                )
             }
         }
         .formStyle(.grouped)
-        .frame(width: 400)
+        .frame(width: 440)
         .fixedSize(horizontal: false, vertical: true)
         .onAppear {
             focusSettingsWindow()
+        }
+    }
+
+    private var notificationProviderDescriptors: [ProviderNotificationDescriptor] {
+        [
+            ProviderNotificationDescriptor(
+                providerId: UsageProviderID.claude,
+                displayName: service.currentSnapshot.displayName,
+                primaryLabel: service.currentSnapshot.primaryBucket?.label ?? "5-hour window",
+                secondaryLabel: service.currentSnapshot.secondaryBucket?.label ?? "7-day window",
+                extraLabel: "Extra usage"
+            ),
+            ProviderNotificationDescriptor(
+                providerId: UsageProviderID.codex,
+                displayName: codexProvider.snapshot?.displayName ?? codexProvider.displayName,
+                primaryLabel: codexProvider.snapshot?.primaryBucket?.label ?? "5-hour window",
+                secondaryLabel: codexProvider.snapshot?.secondaryBucket?.label ?? "Weekly window",
+                extraLabel: "Credits low"
+            )
+        ]
+    }
+}
+
+private struct ProviderNotificationDescriptor: Identifiable {
+    let providerId: String
+    let displayName: String
+    let primaryLabel: String
+    let secondaryLabel: String
+    let extraLabel: String
+
+    var id: String { providerId }
+}
+
+private struct ProviderNotificationSection: View {
+    let descriptor: ProviderNotificationDescriptor
+    let settings: ProviderNotificationSettings
+    @ObservedObject var notificationService: NotificationService
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(descriptor.displayName)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+
+            NotificationThresholdPicker(
+                label: descriptor.primaryLabel,
+                value: settings.fiveHourThresholdPct,
+                onChange: { notificationService.setFiveHourThreshold($0, for: descriptor.providerId) }
+            )
+
+            NotificationThresholdPicker(
+                label: descriptor.secondaryLabel,
+                value: settings.weeklyThresholdPct,
+                onChange: { notificationService.setWeeklyThreshold($0, for: descriptor.providerId) }
+            )
+
+            Toggle(descriptor.extraLabel, isOn: Binding(
+                get: { settings.extraUsageEnabled },
+                set: { notificationService.setExtraUsageEnabled($0, for: descriptor.providerId) }
+            ))
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+private struct NotificationThresholdPicker: View {
+    let label: String
+    let value: Int?
+    let onChange: (Int?) -> Void
+
+    var body: some View {
+        LabeledContent(label) {
+            Picker(label, selection: Binding(
+                get: { value },
+                set: { onChange($0) }
+            )) {
+                Text("Off").tag(nil as Int?)
+                Text("50%").tag(Optional(50))
+                Text("25%").tag(Optional(25))
+                Text("10%").tag(Optional(10))
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 210)
+        }
+    }
+}
+
+private struct ProviderAccountSection: View {
+    let providerName: String
+    let account: String?
+    let plan: String?
+    let unavailableText: String?
+    let signOutAction: (() -> Void)?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(providerName)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+
+            if let account {
+                Text(account)
+            } else if let unavailableText {
+                Text(unavailableText)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let plan {
+                Text(plan.capitalized)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let signOutAction {
+                Button("Sign Out") {
+                    signOutAction()
+                }
+            }
         }
     }
 }
@@ -172,30 +298,4 @@ func launchAtLoginInstallDirectories(fileManager: FileManager = .default) -> [UR
         URL(fileURLWithPath: "/Applications", isDirectory: true),
         fileManager.homeDirectoryForCurrentUser.appending(path: "Applications", directoryHint: .isDirectory)
     ]
-}
-
-private struct ThresholdSlider: View {
-    let label: String
-    let value: Int
-    let onChange: (Int) -> Void
-
-    var body: some View {
-        LabeledContent {
-            Slider(
-                value: Binding(
-                    get: { Double(value) },
-                    set: { onChange(Int($0)) }
-                ),
-                in: 0...100,
-                step: 5
-            )
-        } label: {
-            Text(label)
-            Text(value > 0 ? "\(value)%" : "Off")
-                .foregroundStyle(.secondary)
-        }
-        .alignmentGuide(.firstTextBaseline) { d in
-            d[VerticalAlignment.center]
-        }
-    }
 }
