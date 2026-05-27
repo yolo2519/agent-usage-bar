@@ -2,6 +2,18 @@ import XCTest
 @testable import AgentUsageBar
 
 final class UsageModelTests: XCTestCase {
+    @MainActor
+    func testClaudeUsageBucketMapsUsedPercentToNormalizedSnapshot() {
+        let service = UsageService()
+        let bucket = service.normalizedBucketForDisplay(
+            label: "5h",
+            bucket: UsageBucket(utilization: 8.0, resetsAt: nil)
+        )
+
+        XCTAssertEqual(bucket?.percentUsed, 8)
+        XCTAssertEqual(bucket?.remainingFraction, 0.92)
+    }
+
     func testResetDateParsesTimestampWithoutTimezoneAsUTC() throws {
         let bucket = UsageBucket(
             utilization: 25.0,

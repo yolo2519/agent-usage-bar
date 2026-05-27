@@ -77,8 +77,8 @@ class UsageService: ObservableObject {
     var currentSnapshot: NormalizedUsageSnapshot {
         NormalizedUsageSnapshot(
             displayName: displayName,
-            primaryBucket: normalizedBucketForDisplay(label: "5-Hour Window", bucket: usage?.fiveHour),
-            secondaryBucket: normalizedBucketForDisplay(label: "7-Day Window", bucket: usage?.sevenDay),
+            primaryBucket: normalizedBucketForDisplay(label: "5h", bucket: usage?.fiveHour),
+            secondaryBucket: normalizedBucketForDisplay(label: "Weekly", bucket: usage?.sevenDay),
             credits: nil,
             plan: nil,
             account: accountEmail,
@@ -598,18 +598,13 @@ class UsageService: ObservableObject {
         lastError = "Session expired — please sign in again"
     }
 
-    func normalizedBucketForDisplay(label: String, bucket: UsageBucket?) -> NormalizedUsageBucket {
-        let utilization = bucket?.utilization
-        let consumedFraction = utilization.map { max(0, min(1, $0 / 100.0)) }
-        let percentLeft = utilization.map { max(0, min(100, 100.0 - $0)) }
+    func normalizedBucketForDisplay(label: String, bucket: UsageBucket?) -> NormalizedUsageBucket? {
+        guard let utilization = bucket?.utilization else { return nil }
 
         return NormalizedUsageBucket(
             label: label,
-            percentLeft: percentLeft,
-            progressFraction: consumedFraction,
-            consumedFraction: consumedFraction,
-            resetsAt: bucket?.resetsAtDate,
-            displayMode: .used
+            percentUsed: Int(round(utilization)),
+            resetsAt: bucket?.resetsAtDate
         )
     }
 }

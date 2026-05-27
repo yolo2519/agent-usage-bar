@@ -5,11 +5,21 @@ struct SettingsWindowContent: View {
     @ObservedObject var service: UsageService
     @ObservedObject var codexProvider: CodexProvider
     @ObservedObject var notificationService: NotificationService
+    @AppStorage("displayMode") private var displayModeRaw = UsageDisplayMode.left.rawValue
 
     var body: some View {
         Form {
             Section("General") {
                 LaunchAtLoginToggle()
+
+                Picker("Show usage as", selection: Binding(
+                    get: { UsageDisplayMode(rawValue: displayModeRaw) ?? .left },
+                    set: { displayModeRaw = $0.rawValue }
+                )) {
+                    Text("Used").tag(UsageDisplayMode.used)
+                    Text("Remaining").tag(UsageDisplayMode.left)
+                }
+                .pickerStyle(.segmented)
 
                 Picker("Polling Interval", selection: Binding(
                     get: { service.pollingMinutes },

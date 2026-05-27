@@ -156,21 +156,15 @@ final class NotificationServiceTests: XCTestCase {
             primaryBucket: primaryLeft.map {
                 NormalizedUsageBucket(
                     label: "5h",
-                    percentLeft: $0,
-                    progressFraction: $0 / 100,
-                    consumedFraction: 1 - ($0 / 100),
-                    resetsAt: primaryReset,
-                    displayMode: .left
+                    percentUsed: Int(round(100 - $0)),
+                    resetsAt: primaryReset
                 )
             },
             secondaryBucket: secondaryLeft.map {
                 NormalizedUsageBucket(
                     label: "Weekly",
-                    percentLeft: $0,
-                    progressFraction: $0 / 100,
-                    consumedFraction: 1 - ($0 / 100),
-                    resetsAt: nil,
-                    displayMode: .left
+                    percentUsed: Int(round(100 - $0)),
+                    resetsAt: nil
                 )
             },
             credits: nil,

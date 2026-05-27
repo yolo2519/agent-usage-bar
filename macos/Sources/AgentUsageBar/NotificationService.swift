@@ -54,12 +54,13 @@ private func evaluateBucket(
     alerts: inout [ProviderThresholdAlert]
 ) {
     let key = "\(providerId):\(bucketId)"
-    guard let threshold, let bucket, let percentLeft = bucket.percentLeft else {
+    guard let threshold, let bucket else {
         firedBucketKeys.remove(key)
         return
     }
 
-    if percentLeft <= Double(threshold) {
+    let percentLeft = 100 - bucket.percentUsed
+    if percentLeft <= threshold {
         guard !firedBucketKeys.contains(key) else { return }
         firedBucketKeys.insert(key)
         alerts.append(ProviderThresholdAlert(
@@ -67,7 +68,7 @@ private func evaluateBucket(
             providerName: providerName,
             bucketId: bucketId,
             bucketLabel: bucket.label,
-            percentLeft: Int(round(percentLeft)),
+            percentLeft: percentLeft,
             resetsAt: bucket.resetsAt
         ))
     } else {

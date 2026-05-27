@@ -7,6 +7,11 @@ struct PopoverView: View {
     @ObservedObject var notificationService: NotificationService
     @ObservedObject var appUpdater: AppUpdater
     @AppStorage("setupComplete") private var setupComplete = false
+    @AppStorage("displayMode") private var displayModeRaw = UsageDisplayMode.left.rawValue
+
+    private var displayMode: UsageDisplayMode {
+        UsageDisplayMode(rawValue: displayModeRaw) ?? .left
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -68,7 +73,8 @@ struct PopoverView: View {
         ProviderUsageSnapshotView(
             snapshot: service.currentSnapshot,
             showsCredits: false,
-            showsMetadata: false
+            showsMetadata: false,
+            displayMode: displayMode
         )
 
         if let opus = service.usage?.sevenDayOpus,
@@ -77,9 +83,12 @@ struct PopoverView: View {
             Text("Per-Model (7 day)")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-            UsageLimitRow(bucket: service.normalizedBucketForDisplay(label: "Opus", bucket: opus))
-            if let sonnet = service.usage?.sevenDaySonnet {
-                UsageLimitRow(bucket: service.normalizedBucketForDisplay(label: "Sonnet", bucket: sonnet))
+            if let opusBucket = service.normalizedBucketForDisplay(label: "Opus", bucket: opus) {
+                UsageLimitRow(bucket: opusBucket, displayMode: displayMode)
+            }
+            if let sonnet = service.usage?.sevenDaySonnet,
+               let sonnetBucket = service.normalizedBucketForDisplay(label: "Sonnet", bucket: sonnet) {
+                UsageLimitRow(bucket: sonnetBucket, displayMode: displayMode)
             }
         }
 
@@ -92,7 +101,7 @@ struct PopoverView: View {
         UsageChartView(historyService: historyService)
 
         Divider()
-        CodexUsageSection(provider: codexProvider)
+        CodexUsageSection(provider: codexProvider, displayMode: displayMode)
 
         if let error = service.lastError {
             Divider()
@@ -288,14 +297,15 @@ private struct ProviderUsageSnapshotView: View {
     let snapshot: NormalizedUsageSnapshot
     let showsCredits: Bool
     let showsMetadata: Bool
+    let displayMode: UsageDisplayMode
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let primary = snapshot.primaryBucket {
-                UsageLimitRow(bucket: primary)
+                UsageLimitRow(bucket: primary, displayMode: displayMode)
             }
             if let secondary = snapshot.secondaryBucket {
-                UsageLimitRow(bucket: secondary)
+                UsageLimitRow(bucket: secondary, displayMode: displayMode)
             }
             if showsCredits, let credits = snapshot.credits {
                 ProviderCreditsRow(credits: credits)
@@ -309,6 +319,7 @@ private struct ProviderUsageSnapshotView: View {
 
 private struct CodexUsageSection: View {
     @ObservedObject var provider: CodexProvider
+    let displayMode: UsageDisplayMode
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -327,7 +338,8 @@ private struct CodexUsageSection: View {
                 ProviderUsageSnapshotView(
                     snapshot: snapshot,
                     showsCredits: true,
-                    showsMetadata: true
+                    showsMetadata: true,
+                    displayMode: displayMode
                 )
 
                 if let updated = provider.lastUpdated {
@@ -346,6 +358,11 @@ private struct CodexUsageSection: View {
 
 private struct UsageLimitRow: View {
     let bucket: NormalizedUsageBucket
+    let displayMode: UsageDisplayMode
+
+    private var displayedPercent: (value: Int, suffix: String) {
+        displayPercent(bucket.percentUsed, mode: displayMode)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -353,12 +370,15 @@ private struct UsageLimitRow: View {
                 Text(bucket.label)
                     .font(.subheadline)
                 Spacer()
-                Text(bucket.percentageText)
+                Text("\(displayedPercent.value)\(displayedPercent.suffix)")
                     .font(.subheadline)
                     .monospacedDigit()
             }
-            ProgressView(value: bucket.progressFraction ?? 0, total: 1.0)
-                .tint(colorForPct(bucket.consumedFraction ?? 0))
+            // The bar always represents remaining capacity, even when the label
+            // is configured to show percent used. A near-full bar is healthy for
+            // every provider and display mode.
+            ProgressView(value: bucket.remainingFraction, total: 1.0)
+                .tint(bucket.quotaHealth.color)
             if let resetDate = bucket.resetsAt {
                 Text("Resets \(resetDate, style: .relative)")
                     .font(.caption2)
@@ -481,13 +501,5 @@ private struct SetupThresholdSlider: View {
             )
             .controlSize(.small)
         }
-    }
-}
-
-private func colorForPct(_ pct: Double) -> Color {
-    switch pct {
-    case ..<0.60: return .green
-    case 0.60..<0.80: return .yellow
-    default: return .red
     }
 }

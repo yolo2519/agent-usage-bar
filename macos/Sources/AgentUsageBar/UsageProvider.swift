@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 @MainActor
 protocol UsageProvider {
@@ -24,28 +25,89 @@ struct NormalizedUsageSnapshot {
     let updatedAt: Date
 }
 
-struct NormalizedUsageBucket {
-    enum DisplayMode {
-        case used
-        case left
+enum UsageDisplayMode: String, CaseIterable, Identifiable {
+    case used
+    case left
+
+    var id: String { rawValue }
+}
+
+enum QuotaHealth: Equatable {
+    case healthy
+    case caution
+    case warning
+    case critical
+
+    static func from(percentLeft: Int) -> QuotaHealth {
+        switch percentLeft {
+        case 51...:
+            return .healthy
+        case 20...50:
+            return .caution
+        case 10..<20:
+            return .warning
+        default:
+            return .critical
+        }
     }
 
-    let label: String
-    let percentLeft: Double?
-    let progressFraction: Double?
-    let consumedFraction: Double?
-    let resetsAt: Date?
-    let displayMode: DisplayMode
-
-    var percentageText: String {
-        switch displayMode {
-        case .used:
-            guard let consumedFraction else { return "-" }
-            return "\(Int(round(consumedFraction * 100)))%"
-        case .left:
-            guard let percentLeft else { return "-" }
-            return "\(Int(round(percentLeft)))% left"
+    var color: Color {
+        switch self {
+        case .healthy:
+            return .green
+        case .caution:
+            return .yellow
+        case .warning:
+            return .orange
+        case .critical:
+            return .red
         }
+    }
+
+    var sfSymbol: String {
+        switch self {
+        case .healthy:
+            return "checkmark.circle.fill"
+        case .caution:
+            return "exclamationmark.circle.fill"
+        case .warning:
+            return "exclamationmark.triangle.fill"
+        case .critical:
+            return "xmark.octagon.fill"
+        }
+    }
+}
+
+func displayPercent(_ used: Int, mode: UsageDisplayMode) -> (value: Int, suffix: String) {
+    switch mode {
+    case .used:
+        return (used, "%")
+    case .left:
+        return (100 - used, "% left")
+    }
+}
+
+struct NormalizedUsageBucket {
+    let label: String
+    let percentUsed: Int
+    let resetsAt: Date?
+
+    var remainingFraction: Double {
+        Double(percentLeft) / 100.0
+    }
+
+    var percentLeft: Int {
+        100 - percentUsed
+    }
+
+    var quotaHealth: QuotaHealth {
+        QuotaHealth.from(percentLeft: percentLeft)
+    }
+
+    init(label: String, percentUsed: Int, resetsAt: Date?) {
+        self.label = label
+        self.percentUsed = max(0, min(100, percentUsed))
+        self.resetsAt = resetsAt
     }
 }
 

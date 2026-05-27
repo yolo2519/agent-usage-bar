@@ -237,18 +237,13 @@ struct CodexAppServerQuotaAdapter {
 
     private static func bucket(label: String, window: [String: Any]) -> NormalizedUsageBucket {
         let usedPercent = doubleValue(window["usedPercent"])
-        let clampedUsed = usedPercent.map { max(0, min(100, $0)) }
-        let percentLeft = clampedUsed.map { 100.0 - $0 }
         let resetsAt = doubleValue(window["resetsAt"])
             .map { Date(timeIntervalSince1970: $0) }
 
         return NormalizedUsageBucket(
             label: label,
-            percentLeft: percentLeft,
-            progressFraction: percentLeft.map { max(0, min(1, $0 / 100.0)) },
-            consumedFraction: clampedUsed.map { max(0, min(1, $0 / 100.0)) },
-            resetsAt: resetsAt,
-            displayMode: .left
+            percentUsed: Int(round(usedPercent ?? 0)),
+            resetsAt: resetsAt
         )
     }
 
