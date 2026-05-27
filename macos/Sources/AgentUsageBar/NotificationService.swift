@@ -1,47 +1,77 @@
 import Foundation
 @preconcurrency import UserNotifications
 
-struct ThresholdAlert: Equatable {
-    let window: String
-    let pct: Int
+struct ProviderThresholdAlert: Equatable {
+    let providerId: String
+    let providerName: String
+    let bucketId: String
+    let bucketLabel: String
+    let percentLeft: Int
+    let resetsAt: Date?
 }
 
-/// Pure logic: returns which threshold alerts should fire given a state transition.
-func crossedThresholds(
-    threshold5h: Int,
-    threshold7d: Int,
-    thresholdExtra: Int,
-    previous5h: Double,
-    previous7d: Double,
-    previousExtra: Double,
-    current5h: Double,
-    current7d: Double,
-    currentExtra: Double
-) -> [ThresholdAlert] {
-    var alerts = [ThresholdAlert]()
+/// Pure logic: fire once when a bucket is at/below its percent-left threshold,
+/// then reset the fired flag only after it rises above the threshold.
+func thresholdAlerts(
+    providerId: String,
+    snapshot: NormalizedUsageSnapshot,
+    settings: ProviderNotificationSettings,
+    firedBucketKeys: inout Set<String>
+) -> [ProviderThresholdAlert] {
+    var alerts = [ProviderThresholdAlert]()
 
-    if threshold5h > 0 {
-        let t = Double(threshold5h)
-        if current5h >= t && previous5h < t {
-            alerts.append(ThresholdAlert(window: "5-hour", pct: Int(round(current5h))))
-        }
-    }
+    evaluateBucket(
+        providerId: providerId,
+        providerName: snapshot.displayName,
+        bucketId: "primary",
+        bucket: snapshot.primaryBucket,
+        threshold: settings.fiveHourThresholdPct,
+        firedBucketKeys: &firedBucketKeys,
+        alerts: &alerts
+    )
 
-    if threshold7d > 0 {
-        let t = Double(threshold7d)
-        if current7d >= t && previous7d < t {
-            alerts.append(ThresholdAlert(window: "7-day", pct: Int(round(current7d))))
-        }
-    }
-
-    if thresholdExtra > 0 {
-        let t = Double(thresholdExtra)
-        if currentExtra >= t && previousExtra < t {
-            alerts.append(ThresholdAlert(window: "Extra usage", pct: Int(round(currentExtra))))
-        }
-    }
+    evaluateBucket(
+        providerId: providerId,
+        providerName: snapshot.displayName,
+        bucketId: "secondary",
+        bucket: snapshot.secondaryBucket,
+        threshold: settings.weeklyThresholdPct,
+        firedBucketKeys: &firedBucketKeys,
+        alerts: &alerts
+    )
 
     return alerts
+}
+
+private func evaluateBucket(
+    providerId: String,
+    providerName: String,
+    bucketId: String,
+    bucket: NormalizedUsageBucket?,
+    threshold: Int?,
+    firedBucketKeys: inout Set<String>,
+    alerts: inout [ProviderThresholdAlert]
+) {
+    let key = "\(providerId):\(bucketId)"
+    guard let threshold, let bucket, let percentLeft = bucket.percentLeft else {
+        firedBucketKeys.remove(key)
+        return
+    }
+
+    if percentLeft <= Double(threshold) {
+        guard !firedBucketKeys.contains(key) else { return }
+        firedBucketKeys.insert(key)
+        alerts.append(ProviderThresholdAlert(
+            providerId: providerId,
+            providerName: providerName,
+            bucketId: bucketId,
+            bucketLabel: bucket.label,
+            percentLeft: Int(round(percentLeft)),
+            resetsAt: bucket.resetsAt
+        ))
+    } else {
+        firedBucketKeys.remove(key)
+    }
 }
 
 private class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
@@ -57,10 +87,9 @@ private class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
 @MainActor
 class NotificationService: ObservableObject {
     @Published private(set) var providerSettings: [String: ProviderNotificationSettings]
+    @Published private(set) var notificationPermissionDenied = false
 
-    private var previousPct5h: Double?
-    private var previousPct7d: Double?
-    private var previousPctExtra: Double?
+    private var firedBucketKeys = Set<String>()
     private var legacyThresholdExtra: Int
     private let userDefaults: UserDefaults
     private let systemNotificationsEnabled: Bool
@@ -99,21 +128,18 @@ class NotificationService: ObservableObject {
         let clamped = clamp(value)
         setFiveHourThreshold(clamped > 0 ? 100 - clamped : nil, for: UsageProviderID.claude)
         userDefaults.set(clamped, forKey: "notificationThreshold5h")
-        previousPct5h = nil
     }
 
     func setThreshold7d(_ value: Int) {
         let clamped = clamp(value)
         setWeeklyThreshold(clamped > 0 ? 100 - clamped : nil, for: UsageProviderID.claude)
         userDefaults.set(clamped, forKey: "notificationThreshold7d")
-        previousPct7d = nil
     }
 
     func setThresholdExtra(_ value: Int) {
         legacyThresholdExtra = clamp(value)
         setExtraUsageEnabled(legacyThresholdExtra > 0, for: UsageProviderID.claude)
         userDefaults.set(legacyThresholdExtra, forKey: "notificationThresholdExtra")
-        previousPctExtra = nil
     }
 
     func settings(for providerId: String) -> ProviderNotificationSettings {
@@ -143,54 +169,45 @@ class NotificationService: ObservableObject {
 
     func requestPermission() {
         guard systemNotificationsEnabled else { return }
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
+            Task { @MainActor in
+                self.notificationPermissionDenied = !granted
+            }
+        }
     }
 
-    func checkAndNotify(pct5h: Double, pct7d: Double, pctExtra: Double) {
-        let current5h = pct5h * 100
-        let current7d = pct7d * 100
-        let currentExtra = pctExtra * 100
-
-        let prev5h = previousPct5h ?? 0
-        let prev7d = previousPct7d ?? 0
-        let prevExtra = previousPctExtra ?? 0
-
-        defer {
-            previousPct5h = current5h
-            previousPct7d = current7d
-            previousPctExtra = currentExtra
-        }
-
-        let alerts = crossedThresholds(
-            threshold5h: threshold5h,
-            threshold7d: threshold7d,
-            thresholdExtra: thresholdExtra,
-            previous5h: prev5h,
-            previous7d: prev7d,
-            previousExtra: prevExtra,
-            current5h: current5h,
-            current7d: current7d,
-            currentExtra: currentExtra
+    func checkAndNotify(
+        providerId: String,
+        snapshot: NormalizedUsageSnapshot,
+        settings: ProviderNotificationSettings
+    ) {
+        let alerts = thresholdAlerts(
+            providerId: providerId,
+            snapshot: snapshot,
+            settings: settings,
+            firedBucketKeys: &firedBucketKeys
         )
 
         for alert in alerts {
-            sendNotification(window: alert.window, pct: alert.pct)
+            sendNotification(alert)
         }
     }
 
-    private func sendNotification(window: String, pct: Int) {
+    private func sendNotification(_ alert: ProviderThresholdAlert) {
+        let body = notificationBody(for: alert)
+
         guard systemNotificationsEnabled else {
-            print("[Notification] \(window) usage has reached \(pct)% (no bundle – skipped)")
+            print("[Notification] \(body) (no bundle - skipped)")
             return
         }
 
         let content = UNMutableNotificationContent()
-        content.title = "Claude Usage"
-        content.body = "\(window) usage has reached \(pct)%"
+        content.title = "Agent Usage Bar"
+        content.body = body
         content.sound = .default
 
         let request = UNNotificationRequest(
-            identifier: "usage-\(window)",
+            identifier: "usage-\(alert.providerId)-\(alert.bucketId)-\(UUID().uuidString)",
             content: content,
             trigger: nil
         )
@@ -199,9 +216,17 @@ class NotificationService: ObservableObject {
             if let error = error {
                 print("[Notification] Failed to deliver: \(error)")
             } else {
-                print("[Notification] Delivered: \(window) at \(pct)%")
+                print("[Notification] Delivered: \(body)")
             }
         }
+    }
+
+    private func notificationBody(for alert: ProviderThresholdAlert) -> String {
+        var body = "\(alert.providerName) \(alert.bucketLabel) limit at \(alert.percentLeft)%"
+        if let resetsAt = alert.resetsAt {
+            body += " - resets \(Self.resetTimeFormatter.string(from: resetsAt))"
+        }
+        return body
     }
 
     private func clamp(_ value: Int) -> Int {
@@ -264,4 +289,10 @@ class NotificationService: ObservableObject {
     }
 
     private static let providerSettingsKey = "providerNotificationSettings.v1"
+
+    private static let resetTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
 }

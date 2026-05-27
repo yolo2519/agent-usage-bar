@@ -40,6 +40,7 @@ struct AgentUsageBarApp: App {
                     historyService.loadHistory()
                     service.historyService = historyService
                     service.notificationService = notificationService
+                    codexProvider.notificationService = notificationService
                     service.startPolling()
                     codexProvider.startPolling()
                 }

@@ -296,7 +296,13 @@ class UsageService: ObservableObject {
             lastError = nil
             lastUpdated = Date()
             historyService?.recordDataPoint(pct5h: pct5h, pct7d: pct7d)
-            notificationService?.checkAndNotify(pct5h: pct5h, pct7d: pct7d, pctExtra: pctExtra)
+            if let notificationService {
+                notificationService.checkAndNotify(
+                    providerId: UsageProviderID.claude,
+                    snapshot: currentSnapshot,
+                    settings: notificationService.settings(for: UsageProviderID.claude)
+                )
+            }
             if currentInterval != baseInterval {
                 currentInterval = baseInterval
                 scheduleTimer()

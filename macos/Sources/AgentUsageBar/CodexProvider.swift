@@ -7,6 +7,8 @@ final class CodexProvider: ObservableObject, UsageProvider {
     @Published private(set) var lastUpdated: Date?
     @Published private(set) var isRefreshing = false
 
+    var notificationService: NotificationService?
+
     let displayName = "Codex"
     let pollInterval: TimeInterval = 5 * 60
 
@@ -30,6 +32,13 @@ final class CodexProvider: ObservableObject, UsageProvider {
             self.snapshot = snapshot
             lastUpdated = snapshot.updatedAt
             lastError = nil
+            if let notificationService {
+                notificationService.checkAndNotify(
+                    providerId: UsageProviderID.codex,
+                    snapshot: snapshot,
+                    settings: notificationService.settings(for: UsageProviderID.codex)
+                )
+            }
         case .unavailable(let message):
             lastError = message
         }

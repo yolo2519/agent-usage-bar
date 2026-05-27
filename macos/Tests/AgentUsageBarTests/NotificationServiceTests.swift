@@ -27,114 +27,158 @@ final class NotificationServiceTests: XCTestCase {
         XCTAssertEqual(service.settings(for: "gemini"), .off)
     }
 
-    func testNoAlertsWhenAllOff() {
-        let alerts = crossedThresholds(
-            threshold5h: 0, threshold7d: 0, thresholdExtra: 0,
-            previous5h: 40, previous7d: 30, previousExtra: 20,
-            current5h: 90, current7d: 85, currentExtra: 80
+    func testNoAlertsWhenThresholdsAreOff() {
+        var fired = Set<String>()
+
+        let alerts = thresholdAlerts(
+            providerId: UsageProviderID.codex,
+            snapshot: snapshot(primaryLeft: 8, secondaryLeft: 12),
+            settings: .off,
+            firedBucketKeys: &fired
         )
+
         XCTAssertTrue(alerts.isEmpty)
     }
 
-    func testOnly5hFires() {
-        let alerts = crossedThresholds(
-            threshold5h: 80, threshold7d: 0, thresholdExtra: 0,
-            previous5h: 70, previous7d: 50, previousExtra: 10,
-            current5h: 85, current7d: 90, currentExtra: 50
-        )
-        XCTAssertEqual(alerts, [ThresholdAlert(window: "5-hour", pct: 85)])
-    }
+    func testFiresWhenPercentLeftIsAtOrBelowThreshold() {
+        var fired = Set<String>()
+        let reset = Date(timeIntervalSince1970: 1_779_835_567)
 
-    func testOnly7dFires() {
-        let alerts = crossedThresholds(
-            threshold5h: 0, threshold7d: 80, thresholdExtra: 0,
-            previous5h: 70, previous7d: 70, previousExtra: 10,
-            current5h: 85, current7d: 85, currentExtra: 50
+        let alerts = thresholdAlerts(
+            providerId: UsageProviderID.codex,
+            snapshot: snapshot(primaryLeft: 20, secondaryLeft: 91, primaryReset: reset),
+            settings: ProviderNotificationSettings(
+                fiveHourThresholdPct: 20,
+                weeklyThresholdPct: 10,
+                extraUsageEnabled: false
+            ),
+            firedBucketKeys: &fired
         )
-        XCTAssertEqual(alerts, [ThresholdAlert(window: "7-day", pct: 85)])
-    }
 
-    func testOnlyExtraFires() {
-        let alerts = crossedThresholds(
-            threshold5h: 0, threshold7d: 0, thresholdExtra: 50,
-            previous5h: 70, previous7d: 70, previousExtra: 40,
-            current5h: 85, current7d: 85, currentExtra: 60
-        )
-        XCTAssertEqual(alerts, [ThresholdAlert(window: "Extra usage", pct: 60)])
-    }
-
-    func testAllThreeFireSimultaneously() {
-        let alerts = crossedThresholds(
-            threshold5h: 80, threshold7d: 80, thresholdExtra: 50,
-            previous5h: 70, previous7d: 70, previousExtra: 40,
-            current5h: 85, current7d: 90, currentExtra: 60
-        )
         XCTAssertEqual(alerts, [
-            ThresholdAlert(window: "5-hour", pct: 85),
-            ThresholdAlert(window: "7-day", pct: 90),
-            ThresholdAlert(window: "Extra usage", pct: 60),
+            ProviderThresholdAlert(
+                providerId: UsageProviderID.codex,
+                providerName: "Codex",
+                bucketId: "primary",
+                bucketLabel: "5h",
+                percentLeft: 20,
+                resetsAt: reset
+            )
         ])
     }
 
-    func testNoAlertWhenStayingAbove() {
-        let alerts = crossedThresholds(
-            threshold5h: 80, threshold7d: 80, thresholdExtra: 50,
-            previous5h: 85, previous7d: 90, previousExtra: 60,
-            current5h: 88, current7d: 92, currentExtra: 65
+    func testDoesNotSpamWhileBucketRemainsBelowThreshold() {
+        var fired = Set<String>()
+        let settings = ProviderNotificationSettings(
+            fiveHourThresholdPct: 25,
+            weeklyThresholdPct: nil,
+            extraUsageEnabled: false
         )
-        XCTAssertTrue(alerts.isEmpty)
+
+        _ = thresholdAlerts(
+            providerId: UsageProviderID.codex,
+            snapshot: snapshot(primaryLeft: 20),
+            settings: settings,
+            firedBucketKeys: &fired
+        )
+        let second = thresholdAlerts(
+            providerId: UsageProviderID.codex,
+            snapshot: snapshot(primaryLeft: 10),
+            settings: settings,
+            firedBucketKeys: &fired
+        )
+
+        XCTAssertTrue(second.isEmpty)
     }
 
-    func testNoAlertWhenStayingBelow() {
-        let alerts = crossedThresholds(
-            threshold5h: 80, threshold7d: 80, thresholdExtra: 50,
-            previous5h: 50, previous7d: 60, previousExtra: 30,
-            current5h: 70, current7d: 75, currentExtra: 45
+    func testResetsFiredFlagWhenPercentLeftRisesAboveThreshold() {
+        var fired = Set<String>()
+        let settings = ProviderNotificationSettings(
+            fiveHourThresholdPct: 25,
+            weeklyThresholdPct: nil,
+            extraUsageEnabled: false
         )
-        XCTAssertTrue(alerts.isEmpty)
+
+        _ = thresholdAlerts(
+            providerId: UsageProviderID.codex,
+            snapshot: snapshot(primaryLeft: 20),
+            settings: settings,
+            firedBucketKeys: &fired
+        )
+        _ = thresholdAlerts(
+            providerId: UsageProviderID.codex,
+            snapshot: snapshot(primaryLeft: 40),
+            settings: settings,
+            firedBucketKeys: &fired
+        )
+        let third = thresholdAlerts(
+            providerId: UsageProviderID.codex,
+            snapshot: snapshot(primaryLeft: 15),
+            settings: settings,
+            firedBucketKeys: &fired
+        )
+
+        XCTAssertEqual(third.map(\.bucketId), ["primary"])
     }
 
-    func testExactThresholdTriggers() {
-        let alerts = crossedThresholds(
-            threshold5h: 80, threshold7d: 0, thresholdExtra: 0,
-            previous5h: 79, previous7d: 50, previousExtra: 10,
-            current5h: 80, current7d: 50, currentExtra: 10
+    func testTracksProviderBucketStateIndependently() {
+        var fired = Set<String>()
+        let settings = ProviderNotificationSettings(
+            fiveHourThresholdPct: 25,
+            weeklyThresholdPct: nil,
+            extraUsageEnabled: false
         )
-        XCTAssertEqual(alerts, [ThresholdAlert(window: "5-hour", pct: 80)])
+
+        _ = thresholdAlerts(
+            providerId: UsageProviderID.claude,
+            snapshot: snapshot(displayName: "Claude", primaryLeft: 20),
+            settings: settings,
+            firedBucketKeys: &fired
+        )
+        let codexAlerts = thresholdAlerts(
+            providerId: UsageProviderID.codex,
+            snapshot: snapshot(primaryLeft: 20),
+            settings: settings,
+            firedBucketKeys: &fired
+        )
+
+        XCTAssertEqual(codexAlerts.map(\.providerId), [UsageProviderID.codex])
     }
 
-    func testFirstPollFiresWhenAlreadyAboveThreshold() {
-        let alerts = crossedThresholds(
-            threshold5h: 25, threshold7d: 5, thresholdExtra: 0,
-            previous5h: 0, previous7d: 0, previousExtra: 0,
-            current5h: 60, current7d: 40, currentExtra: 10
+    private func snapshot(
+        displayName: String = "Codex",
+        primaryLeft: Double? = nil,
+        secondaryLeft: Double? = nil,
+        primaryReset: Date? = nil
+    ) -> NormalizedUsageSnapshot {
+        NormalizedUsageSnapshot(
+            displayName: displayName,
+            primaryBucket: primaryLeft.map {
+                NormalizedUsageBucket(
+                    label: "5h",
+                    percentLeft: $0,
+                    progressFraction: $0 / 100,
+                    consumedFraction: 1 - ($0 / 100),
+                    resetsAt: primaryReset,
+                    displayMode: .left
+                )
+            },
+            secondaryBucket: secondaryLeft.map {
+                NormalizedUsageBucket(
+                    label: "Weekly",
+                    percentLeft: $0,
+                    progressFraction: $0 / 100,
+                    consumedFraction: 1 - ($0 / 100),
+                    resetsAt: nil,
+                    displayMode: .left
+                )
+            },
+            credits: nil,
+            plan: nil,
+            account: nil,
+            model: nil,
+            updatedAt: Date(timeIntervalSince1970: 0)
         )
-        XCTAssertEqual(alerts, [
-            ThresholdAlert(window: "5-hour", pct: 60),
-            ThresholdAlert(window: "7-day", pct: 40),
-        ])
-    }
-
-    func testFirstPollDoesNotFireWhenBelowThreshold() {
-        let alerts = crossedThresholds(
-            threshold5h: 80, threshold7d: 80, thresholdExtra: 0,
-            previous5h: 0, previous7d: 0, previousExtra: 0,
-            current5h: 30, current7d: 50, currentExtra: 10
-        )
-        XCTAssertTrue(alerts.isEmpty)
-    }
-
-    func testDifferentThresholdsPerWindow() {
-        let alerts = crossedThresholds(
-            threshold5h: 90, threshold7d: 50, thresholdExtra: 70,
-            previous5h: 85, previous7d: 45, previousExtra: 65,
-            current5h: 95, current7d: 55, currentExtra: 75
-        )
-        XCTAssertEqual(alerts, [
-            ThresholdAlert(window: "5-hour", pct: 95),
-            ThresholdAlert(window: "7-day", pct: 55),
-            ThresholdAlert(window: "Extra usage", pct: 75),
-        ])
     }
 
     private func makeUserDefaults() -> UserDefaults {
