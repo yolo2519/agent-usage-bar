@@ -18,7 +18,7 @@ Now it's just a glimpse away — always sitting at the top of your screen.
 
 ## What it does
 
-A tiny macOS menu bar app that shows your agent usage at a glance. Click it for the full picture:
+A tiny macOS menu bar app that shows your Claude Code and OpenAI Codex CLI usage at a glance. Click it for the full picture:
 
 - Menu bar icon with a mini dual-bar showing 5-hour and 7-day utilization
 - Detailed popover with per-window usage, per-model breakdown, and reset timers
@@ -169,6 +169,15 @@ scripts/                         # Shared tooling
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, testing with the mock server, and submission guidelines.
+
+## Credits
+
+Agent Usage Bar is a fork of [claude-usage-bar](https://github.com/yolo2519/claude-usage-bar.git) by
+[@yolo2519](https://github.com/yolo2519), extended to monitor OpenAI Codex CLI usage alongside Claude Code. The original Claude
+monitoring implementation — Anthropic OAuth flow, menu bar architecture,
+SwiftUI views, and history charting — is their work.
+
+Licensed under BSD 2-Clause.
 
 ## License
 
