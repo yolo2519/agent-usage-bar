@@ -56,48 +56,93 @@ private class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
 
 @MainActor
 class NotificationService: ObservableObject {
-    /// 0 = off, 5–100 = alert when window reaches this %.
-    @Published private(set) var threshold5h: Int
-    @Published private(set) var threshold7d: Int
-    @Published private(set) var thresholdExtra: Int
+    @Published private(set) var providerSettings: [String: ProviderNotificationSettings]
 
     private var previousPct5h: Double?
     private var previousPct7d: Double?
     private var previousPctExtra: Double?
+    private var legacyThresholdExtra: Int
+    private let userDefaults: UserDefaults
+    private let systemNotificationsEnabled: Bool
     private let delegate = NotificationDelegate()
 
-    init() {
-        threshold5h = Self.load("notificationThreshold5h")
-        threshold7d = Self.load("notificationThreshold7d")
-        thresholdExtra = Self.load("notificationThresholdExtra")
-        if Bundle.main.bundleIdentifier != nil {
+    /// Compatibility accessors for the pre-provider settings UI. These remain
+    /// expressed as percent used until the UI moves to provider settings.
+    var threshold5h: Int {
+        guard let percentLeft = settings(for: UsageProviderID.claude).fiveHourThresholdPct else { return 0 }
+        return 100 - percentLeft
+    }
+
+    var threshold7d: Int {
+        guard let percentLeft = settings(for: UsageProviderID.claude).weeklyThresholdPct else { return 0 }
+        return 100 - percentLeft
+    }
+
+    var thresholdExtra: Int {
+        settings(for: UsageProviderID.claude).extraUsageEnabled ? legacyThresholdExtra : 0
+    }
+
+    init(
+        userDefaults: UserDefaults = .standard,
+        systemNotificationsEnabled: Bool = Bundle.main.bundleURL.pathExtension == "app"
+    ) {
+        self.userDefaults = userDefaults
+        self.systemNotificationsEnabled = systemNotificationsEnabled
+        self.legacyThresholdExtra = Self.load("notificationThresholdExtra", from: userDefaults)
+        self.providerSettings = Self.loadProviderSettings(from: userDefaults)
+        if systemNotificationsEnabled {
             UNUserNotificationCenter.current().delegate = delegate
         }
     }
 
     func setThreshold5h(_ value: Int) {
-        threshold5h = clamp(value)
-        UserDefaults.standard.set(threshold5h, forKey: "notificationThreshold5h")
+        let clamped = clamp(value)
+        setFiveHourThreshold(clamped > 0 ? 100 - clamped : nil, for: UsageProviderID.claude)
+        userDefaults.set(clamped, forKey: "notificationThreshold5h")
         previousPct5h = nil
-        if threshold5h > 0 { requestPermission() }
     }
 
     func setThreshold7d(_ value: Int) {
-        threshold7d = clamp(value)
-        UserDefaults.standard.set(threshold7d, forKey: "notificationThreshold7d")
+        let clamped = clamp(value)
+        setWeeklyThreshold(clamped > 0 ? 100 - clamped : nil, for: UsageProviderID.claude)
+        userDefaults.set(clamped, forKey: "notificationThreshold7d")
         previousPct7d = nil
-        if threshold7d > 0 { requestPermission() }
     }
 
     func setThresholdExtra(_ value: Int) {
-        thresholdExtra = clamp(value)
-        UserDefaults.standard.set(thresholdExtra, forKey: "notificationThresholdExtra")
+        legacyThresholdExtra = clamp(value)
+        setExtraUsageEnabled(legacyThresholdExtra > 0, for: UsageProviderID.claude)
+        userDefaults.set(legacyThresholdExtra, forKey: "notificationThresholdExtra")
         previousPctExtra = nil
-        if thresholdExtra > 0 { requestPermission() }
+    }
+
+    func settings(for providerId: String) -> ProviderNotificationSettings {
+        providerSettings[providerId] ?? .off
+    }
+
+    func setFiveHourThreshold(_ value: Int?, for providerId: String) {
+        updateSettings(for: providerId) { settings in
+            settings.fiveHourThresholdPct = clampedOptional(value)
+        }
+        if value != nil { requestPermission() }
+    }
+
+    func setWeeklyThreshold(_ value: Int?, for providerId: String) {
+        updateSettings(for: providerId) { settings in
+            settings.weeklyThresholdPct = clampedOptional(value)
+        }
+        if value != nil { requestPermission() }
+    }
+
+    func setExtraUsageEnabled(_ enabled: Bool, for providerId: String) {
+        updateSettings(for: providerId) { settings in
+            settings.extraUsageEnabled = enabled
+        }
+        if enabled { requestPermission() }
     }
 
     func requestPermission() {
-        guard Bundle.main.bundleIdentifier != nil else { return }
+        guard systemNotificationsEnabled else { return }
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
@@ -134,7 +179,7 @@ class NotificationService: ObservableObject {
     }
 
     private func sendNotification(window: String, pct: Int) {
-        guard Bundle.main.bundleIdentifier != nil else {
+        guard systemNotificationsEnabled else {
             print("[Notification] \(window) usage has reached \(pct)% (no bundle – skipped)")
             return
         }
@@ -163,8 +208,60 @@ class NotificationService: ObservableObject {
         max(0, min(100, value))
     }
 
-    private static func load(_ key: String) -> Int {
-        let value = UserDefaults.standard.integer(forKey: key)
+    private func clampedOptional(_ value: Int?) -> Int? {
+        guard let value else { return nil }
+        return clamp(value)
+    }
+
+    private func updateSettings(for providerId: String, mutate: (inout ProviderNotificationSettings) -> Void) {
+        var settings = providerSettings[providerId] ?? .off
+        mutate(&settings)
+        providerSettings[providerId] = settings
+        persistProviderSettings()
+    }
+
+    private func persistProviderSettings() {
+        guard let data = try? JSONEncoder().encode(providerSettings) else { return }
+        userDefaults.set(data, forKey: Self.providerSettingsKey)
+    }
+
+    private static func load(_ key: String, from userDefaults: UserDefaults) -> Int {
+        let value = userDefaults.integer(forKey: key)
         return max(0, min(100, value))
     }
+
+    private static func loadProviderSettings(from userDefaults: UserDefaults) -> [String: ProviderNotificationSettings] {
+        if let data = userDefaults.data(forKey: providerSettingsKey),
+           let settings = try? JSONDecoder().decode([String: ProviderNotificationSettings].self, from: data) {
+            return settings
+        }
+
+        let migrated = migrateLegacySettings(from: userDefaults)
+        if let data = try? JSONEncoder().encode(migrated) {
+            userDefaults.set(data, forKey: providerSettingsKey)
+        }
+        return migrated
+    }
+
+    private static func migrateLegacySettings(from userDefaults: UserDefaults) -> [String: ProviderNotificationSettings] {
+        let fiveHourUsed = load("notificationThreshold5h", from: userDefaults)
+        let weeklyUsed = load("notificationThreshold7d", from: userDefaults)
+        let extra = load("notificationThresholdExtra", from: userDefaults)
+
+        return [
+            UsageProviderID.claude: ProviderNotificationSettings(
+                fiveHourThresholdPct: percentLeftThreshold(fromLegacyUsedThreshold: fiveHourUsed),
+                weeklyThresholdPct: percentLeftThreshold(fromLegacyUsedThreshold: weeklyUsed),
+                extraUsageEnabled: extra > 0
+            ),
+            UsageProviderID.codex: .off
+        ]
+    }
+
+    private static func percentLeftThreshold(fromLegacyUsedThreshold value: Int) -> Int? {
+        guard value > 0 else { return nil }
+        return max(0, min(100, 100 - value))
+    }
+
+    private static let providerSettingsKey = "providerNotificationSettings.v1"
 }

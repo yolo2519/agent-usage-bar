@@ -2,6 +2,31 @@ import XCTest
 @testable import AgentUsageBar
 
 final class NotificationServiceTests: XCTestCase {
+    @MainActor
+    func testMigratesLegacyClaudeThresholdsToProviderSettings() {
+        let defaults = makeUserDefaults()
+        defaults.set(80, forKey: "notificationThreshold5h")
+        defaults.set(95, forKey: "notificationThreshold7d")
+        defaults.set(50, forKey: "notificationThresholdExtra")
+
+        let service = NotificationService(userDefaults: defaults)
+        let settings = service.settings(for: UsageProviderID.claude)
+
+        XCTAssertEqual(settings.fiveHourThresholdPct, 20)
+        XCTAssertEqual(settings.weeklyThresholdPct, 5)
+        XCTAssertTrue(settings.extraUsageEnabled)
+        XCTAssertEqual(service.threshold5h, 80)
+        XCTAssertEqual(service.threshold7d, 95)
+        XCTAssertEqual(service.thresholdExtra, 50)
+    }
+
+    @MainActor
+    func testMissingProviderSettingsDefaultToOff() {
+        let service = NotificationService(userDefaults: makeUserDefaults())
+
+        XCTAssertEqual(service.settings(for: "gemini"), .off)
+    }
+
     func testNoAlertsWhenAllOff() {
         let alerts = crossedThresholds(
             threshold5h: 0, threshold7d: 0, thresholdExtra: 0,
@@ -110,5 +135,12 @@ final class NotificationServiceTests: XCTestCase {
             ThresholdAlert(window: "7-day", pct: 55),
             ThresholdAlert(window: "Extra usage", pct: 75),
         ])
+    }
+
+    private func makeUserDefaults() -> UserDefaults {
+        let suiteName = "AgentUsageBarTests.NotificationService.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        return defaults
     }
 }
