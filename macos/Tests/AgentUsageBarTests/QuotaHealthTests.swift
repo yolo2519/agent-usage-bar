@@ -31,4 +31,31 @@ final class QuotaHealthTests: XCTestCase {
         XCTAssertEqual(displayPercent(bucket.percentUsed, mode: .left).value, 8)
         XCTAssertEqual(bucket.quotaHealth, .critical)
     }
+
+    func testWorstHealthChoosesMostSevereBucketOrProvider() {
+        XCTAssertEqual(
+            QuotaHealth.worst([.healthy, .warning, .caution]),
+            .warning
+        )
+        XCTAssertEqual(
+            QuotaHealth.worst([nil, .healthy, .critical]),
+            .critical
+        )
+        XCTAssertNil(QuotaHealth.worst([nil, nil]))
+    }
+
+    func testSnapshotHealthUsesWorstBucket() {
+        let snapshot = NormalizedUsageSnapshot(
+            displayName: "Codex",
+            primaryBucket: NormalizedUsageBucket(label: "5h", percentUsed: 20, resetsAt: nil),
+            secondaryBucket: NormalizedUsageBucket(label: "Weekly", percentUsed: 91, resetsAt: nil),
+            credits: nil,
+            plan: nil,
+            account: nil,
+            model: nil,
+            updatedAt: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(snapshot.quotaHealth, .critical)
+    }
 }

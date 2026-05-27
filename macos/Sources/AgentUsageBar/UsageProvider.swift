@@ -23,6 +23,13 @@ struct NormalizedUsageSnapshot {
     let account: String?
     let model: String?
     let updatedAt: Date
+
+    var quotaHealth: QuotaHealth? {
+        QuotaHealth.worst([
+            primaryBucket?.quotaHealth,
+            secondaryBucket?.quotaHealth
+        ])
+    }
 }
 
 enum UsageDisplayMode: String, CaseIterable, Identifiable {
@@ -48,6 +55,23 @@ enum QuotaHealth: Equatable {
             return .warning
         default:
             return .critical
+        }
+    }
+
+    static func worst(_ values: [QuotaHealth?]) -> QuotaHealth? {
+        values.compactMap { $0 }.max { $0.severity < $1.severity }
+    }
+
+    private var severity: Int {
+        switch self {
+        case .healthy:
+            return 0
+        case .caution:
+            return 1
+        case .warning:
+            return 2
+        case .critical:
+            return 3
         }
     }
 

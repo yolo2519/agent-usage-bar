@@ -27,11 +27,19 @@ struct AgentUsageBarApp: App {
                 appUpdater: appUpdater
             )
         } label: {
-            Image(nsImage: service.isAuthenticated
-                ? renderIcon(pct5h: service.pct5h, pct7d: service.pct7d)
-                : renderUnauthenticatedIcon()
-            )
-                .help("Agent Usage Bar")
+            ZStack(alignment: .bottomTrailing) {
+                Image(nsImage: service.isAuthenticated
+                    ? renderIcon(pct5h: service.pct5h, pct7d: service.pct7d)
+                    : renderUnauthenticatedIcon()
+                )
+                if let globalQuotaHealth {
+                    Circle()
+                        .fill(globalQuotaHealth.color)
+                        .frame(width: 6, height: 6)
+                        .offset(x: 1, y: 1)
+                }
+            }
+            .help("Agent Usage Bar")
                 .task {
                     // Auto-mark existing users as setup-complete
                     if service.isAuthenticated && !UserDefaults.standard.bool(forKey: "setupComplete") {
@@ -56,5 +64,12 @@ struct AgentUsageBarApp: App {
         }
         .windowResizability(.contentSize)
         .windowStyle(.titleBar)
+    }
+
+    private var globalQuotaHealth: QuotaHealth? {
+        QuotaHealth.worst([
+            service.currentSnapshot.quotaHealth,
+            codexProvider.snapshot?.quotaHealth
+        ])
     }
 }
