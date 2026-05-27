@@ -1,15 +1,15 @@
 <p align="center">
-  <img src="macos/Resources/icon.png" width="128" alt="Claude Usage Bar icon">
+  <img src="macos/Resources/icon.png" width="128" alt="Agent Usage Bar icon">
 </p>
 
-# Claude Usage Bar
+# Agent Usage Bar
 
-Have you ever found yourself refreshing the Claude usage page, wondering how close you are to hitting your rate limit? Yeah, I've been there too. So I built this.
+Have you ever found yourself refreshing the Agent usage page, wondering how close you are to hitting your rate limit? Yeah, I've been there too. So I built this.
 
 Now it's just a glimpse away — always sitting at the top of your screen.
 
 <p align="center">
-  <img src="macos/Resources/demo.png" width="400" alt="Claude Usage Bar demo">
+  <img src="macos/Resources/demo.png" width="400" alt="Agent Usage Bar demo">
 </p>
 
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-blue)
@@ -18,7 +18,7 @@ Now it's just a glimpse away — always sitting at the top of your screen.
 
 ## What it does
 
-A tiny macOS menu bar app that shows your Claude API usage at a glance. Click it for the full picture:
+A tiny macOS menu bar app that shows your agent usage at a glance. Click it for the full picture:
 
 - Menu bar icon with a mini dual-bar showing 5-hour and 7-day utilization
 - Detailed popover with per-window usage, per-model breakdown, and reset timers
@@ -34,8 +34,8 @@ A tiny macOS menu bar app that shows your Claude API usage at a glance. Click it
 
 ### Download
 
-1. Download `ClaudeUsageBar.dmg` from the [latest release](https://github.com/Blimp-Labs/claude-usage-bar/releases/latest)
-2. Open the disk image and drag `ClaudeUsageBar.app` into `Applications`
+1. Download `AgentUsageBar.dmg` from the [latest release](https://github.com/Blimp-Labs/agent-usage-bar/releases/latest)
+2. Open the disk image and drag `Agent Usage Bar.app` into `Applications`
 3. Launch the app from `/Applications`
 4. macOS may require right-click → **Open** on first launch
 
@@ -44,8 +44,8 @@ A tiny macOS menu bar app that shows your Claude API usage at a glance. Click it
 Requires Xcode 15+ / Swift 5.9+ and macOS 14 (Sonoma) or later.
 
 ```sh
-git clone https://github.com/Blimp-Labs/claude-usage-bar.git
-cd claude-usage-bar
+git clone https://github.com/Blimp-Labs/agent-usage-bar.git
+cd agent-usage-bar
 make app            # build .app bundle
 make dmg            # build drag-to-Applications disk image
 make install        # copy to /Applications
@@ -67,7 +67,7 @@ Click the icon anytime to see:
 
 ## Data storage
 
-All data is stored locally in `~/.config/claude-usage-bar/`:
+All data is stored locally in `~/.config/agent-usage-bar/`:
 
 | File | Purpose |
 |------|---------|
@@ -75,6 +75,8 @@ All data is stored locally in `~/.config/claude-usage-bar/`:
 | `history.json` | Usage history for the chart (30-day retention) |
 
 History is buffered in memory and flushed to disk every 5 minutes and on app quit. No data is sent anywhere other than the Anthropic API.
+
+On first launch after upgrading from Claude Usage Bar, the app migrates `~/.config/claude-usage-bar/` to `~/.config/agent-usage-bar/` when the new directory does not already exist.
 
 ## Development
 
@@ -94,7 +96,7 @@ make clean          # remove build artifacts
 This repo now uses a tag-driven release flow. Pushing a `v*` tag will:
 
 - build the `.app` bundle once
-- produce `ClaudeUsageBar.zip` for Sparkle and `ClaudeUsageBar.dmg` for manual installs
+- produce `AgentUsageBar.zip` for Sparkle and `AgentUsageBar.dmg` for manual installs
 - verify the packaged artifacts contain the expected app bundle resources and updater framework
 - create the GitHub Release
 - reuse GitHub-generated release notes for both the GitHub Release and the Sparkle update entry
@@ -120,22 +122,22 @@ Manual installs should prefer the DMG. The ZIP remains the source of truth for S
 You can export the current Sparkle private key from your local Keychain with:
 
 ```sh
-macos/.build/artifacts/sparkle/Sparkle/bin/generate_keys --account claude-usage-bar -x /tmp/claude-usage-bar.sparkle.key
-gh secret set SPARKLE_PRIVATE_KEY < /tmp/claude-usage-bar.sparkle.key
+macos/.build/artifacts/sparkle/Sparkle/bin/generate_keys --account agent-usage-bar -x /tmp/agent-usage-bar.sparkle.key
+gh secret set SPARKLE_PRIVATE_KEY < /tmp/agent-usage-bar.sparkle.key
 ```
 
 The appcast feed URL used by release builds is:
 
 ```text
-https://blimp-labs.github.io/claude-usage-bar/appcast.xml
+https://blimp-labs.github.io/agent-usage-bar/appcast.xml
 ```
 
 ### Project structure
 
 ```
 macos/                           # macOS menu bar app (Swift/SwiftUI)
-├── Sources/ClaudeUsageBar/
-│   ├── ClaudeUsageBarApp.swift      # App entry point, menu bar setup
+├── Sources/AgentUsageBar/
+│   ├── AgentUsageBarApp.swift      # App entry point, menu bar setup
 │   ├── UsageService.swift           # OAuth, polling, API calls
 │   ├── UsageModel.swift             # API response types
 │   ├── UsageHistoryModel.swift      # History data types, time ranges
@@ -150,7 +152,7 @@ macos/                           # macOS menu bar app (Swift/SwiftUI)
 │   └── Resources/
 │       ├── claude-logo.png          # Pre-rendered menu bar logo (512px)
 │       └── en.lproj/Localizable.strings
-├── Tests/ClaudeUsageBarTests/
+├── Tests/AgentUsageBarTests/
 ├── Resources/                       # App bundle resources (not SwiftPM)
 │   ├── Info.plist
 │   ├── Assets.xcassets/             # App icon

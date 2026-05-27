@@ -1,5 +1,5 @@
 import XCTest
-@testable import ClaudeUsageBar
+@testable import AgentUsageBar
 
 final class StoredCredentialsTests: XCTestCase {
     func testStoreSavesAndLoadsCredentialBundle() throws {

@@ -168,7 +168,7 @@ struct CodexAppServerQuotaAdapter {
     private func writeRequests(to stdin: FileHandle) throws {
         // account/rateLimits/read is an internal, undocumented Codex app-server method and may change.
         let lines = [
-            #"{"id":1,"method":"initialize","params":{"clientInfo":{"name":"claude-usage-bar","title":"Claude Usage Bar","version":"0.0.0"},"capabilities":null}}"#,
+            #"{"id":1,"method":"initialize","params":{"clientInfo":{"name":"agent-usage-bar","title":"Agent Usage Bar","version":"0.0.0"},"capabilities":null}}"#,
             #"{"id":2,"method":"account/rateLimits/read"}"#,
             #"{"id":3,"method":"account/read","params":{}}"#
         ]

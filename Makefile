@@ -8,25 +8,25 @@ app:
 
 zip:
 	bash macos/scripts/build.sh --zip
-	bash macos/scripts/verify-release.sh macos/ClaudeUsageBar.zip
+	bash macos/scripts/verify-release.sh macos/AgentUsageBar.zip
 
 dmg:
 	bash macos/scripts/build.sh --dmg
-	bash macos/scripts/verify-release.sh macos/ClaudeUsageBar.dmg
+	bash macos/scripts/verify-release.sh macos/AgentUsageBar.dmg
 
 release-artifacts:
 	bash macos/scripts/build.sh --zip --dmg
-	bash macos/scripts/verify-release.sh macos/ClaudeUsageBar.zip
-	bash macos/scripts/verify-release.sh macos/ClaudeUsageBar.dmg
+	bash macos/scripts/verify-release.sh macos/AgentUsageBar.zip
+	bash macos/scripts/verify-release.sh macos/AgentUsageBar.dmg
 
 verify-release:
-	bash macos/scripts/verify-release.sh macos/ClaudeUsageBar.zip
-	if [ -f macos/ClaudeUsageBar.dmg ]; then bash macos/scripts/verify-release.sh macos/ClaudeUsageBar.dmg; fi
+	bash macos/scripts/verify-release.sh macos/AgentUsageBar.zip
+	if [ -f macos/AgentUsageBar.dmg ]; then bash macos/scripts/verify-release.sh macos/AgentUsageBar.dmg; fi
 
 install: app
-	rm -rf /Applications/ClaudeUsageBar.app
-	cp -R macos/ClaudeUsageBar.app /Applications/
+	rm -rf "/Applications/Agent Usage Bar.app"
+	cp -R "macos/Agent Usage Bar.app" /Applications/
 
 clean:
 	cd macos && swift package clean
-	rm -rf macos/ClaudeUsageBar.app macos/ClaudeUsageBar.zip macos/ClaudeUsageBar.dmg
+	rm -rf "macos/Agent Usage Bar.app" macos/AgentUsageBar.zip macos/AgentUsageBar.dmg

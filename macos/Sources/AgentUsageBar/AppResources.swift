@@ -2,11 +2,11 @@ import Foundation
 
 private final class AppResourceBundleFinder {}
 
-func claudeUsageBarResourceBundle(
+func agentUsageBarResourceBundle(
     mainBundle: Bundle = .main,
     finderBundle: Bundle = Bundle(for: AppResourceBundleFinder.self)
 ) -> Bundle? {
-    let bundleName = "ClaudeUsageBar_ClaudeUsageBar.bundle"
+    let bundleName = "AgentUsageBar_AgentUsageBar.bundle"
     let candidates: [URL?] = [
         mainBundle.resourceURL?.appendingPathComponent(bundleName),
         mainBundle.bundleURL.appendingPathComponent(bundleName),

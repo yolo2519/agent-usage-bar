@@ -3,11 +3,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-APP_NAME="ClaudeUsageBar"
+PRODUCT_NAME="AgentUsageBar"
+APP_NAME="Agent Usage Bar"
 BUILD_DIR="$PROJECT_DIR/.build"
 APP_BUNDLE="$PROJECT_DIR/$APP_NAME.app"
-ZIP_PATH="$PROJECT_DIR/$APP_NAME.zip"
-DMG_PATH="$PROJECT_DIR/$APP_NAME.dmg"
+ZIP_PATH="$PROJECT_DIR/$PRODUCT_NAME.zip"
+DMG_PATH="$PROJECT_DIR/$PRODUCT_NAME.dmg"
 CREATE_DMG_VERSION="v1.2.3"
 CREATE_DMG_TARBALL_URL="https://github.com/create-dmg/create-dmg/archive/refs/tags/${CREATE_DMG_VERSION}.tar.gz"
 DMG_RESOURCES_DIR="$PROJECT_DIR/Resources/dmg"
@@ -61,7 +62,7 @@ build_app_bundle() {
     echo "==> Building release binary..."
     swift build -c release
 
-    local binary="$BUILD_DIR/release/$APP_NAME"
+    local binary="$BUILD_DIR/release/$PRODUCT_NAME"
     if [[ ! -f "$binary" ]]; then
         echo "Error: binary not found at $binary"
         exit 1
@@ -69,7 +70,7 @@ build_app_bundle() {
 
     local staging_dir
     local staged_app_bundle
-    staging_dir="$(mktemp -d "/private/tmp/claude-usage-bar-app.XXXXXX")"
+    staging_dir="$(mktemp -d "/private/tmp/agent-usage-bar-app.XXXXXX")"
     staged_app_bundle="$staging_dir/$APP_NAME.app"
     trap 'rm -rf "$staging_dir"' RETURN
 
@@ -79,7 +80,7 @@ build_app_bundle() {
     mkdir -p "$staged_app_bundle/Contents/Resources"
 
     cp "$PROJECT_DIR/Resources/Info.plist" "$staged_app_bundle/Contents/Info.plist"
-    cp "$binary" "$staged_app_bundle/Contents/MacOS/$APP_NAME"
+    cp "$binary" "$staged_app_bundle/Contents/MacOS/$PRODUCT_NAME"
 
     local app_version="${APP_VERSION:-$($PLIST_BUDDY -c 'Print :CFBundleShortVersionString' "$PROJECT_DIR/Resources/Info.plist")}"
     local app_build="${APP_BUILD:-$(version_to_build_number "$app_version")}"
@@ -93,13 +94,13 @@ build_app_bundle() {
         "$PLUTIL" -remove SUFeedURL "$staged_app_bundle/Contents/Info.plist" 2>/dev/null || true
     fi
 
-    local resource_bundle="$BUILD_DIR/release/${APP_NAME}_${APP_NAME}.bundle"
+    local resource_bundle="$BUILD_DIR/release/${PRODUCT_NAME}_${PRODUCT_NAME}.bundle"
     if [[ ! -d "$resource_bundle" ]]; then
-        resource_bundle="$(find "$BUILD_DIR" -path "*/release/${APP_NAME}_${APP_NAME}.bundle" -type d | head -n 1 || true)"
+        resource_bundle="$(find "$BUILD_DIR" -path "*/release/${PRODUCT_NAME}_${PRODUCT_NAME}.bundle" -type d | head -n 1 || true)"
     fi
 
     if [[ -z "$resource_bundle" || ! -d "$resource_bundle" ]]; then
-        echo "Error: SwiftPM resource bundle not found for $APP_NAME"
+        echo "Error: SwiftPM resource bundle not found for $PRODUCT_NAME"
         exit 1
     fi
 
@@ -187,7 +188,7 @@ create_dmg() {
     local create_dmg_root
     local create_dmg_tool
     local -a create_dmg_args
-    staging_dir="$(mktemp -d "${TMPDIR:-/tmp}/claude-usage-bar-dmg.XXXXXX")"
+    staging_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-usage-bar-dmg.XXXXXX")"
     create_dmg_root="$(mktemp -d "${TMPDIR:-/tmp}/create-dmg.XXXXXX")"
     create_dmg_tool="$create_dmg_root/create-dmg"
 

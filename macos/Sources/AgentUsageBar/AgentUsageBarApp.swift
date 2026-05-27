@@ -1,12 +1,21 @@
 import SwiftUI
 
 @main
-struct ClaudeUsageBarApp: App {
-    @StateObject private var service = UsageService()
-    @StateObject private var codexProvider = CodexProvider()
-    @StateObject private var historyService = UsageHistoryService()
-    @StateObject private var notificationService = NotificationService()
-    @StateObject private var appUpdater = AppUpdater()
+struct AgentUsageBarApp: App {
+    @StateObject private var service: UsageService
+    @StateObject private var codexProvider: CodexProvider
+    @StateObject private var historyService: UsageHistoryService
+    @StateObject private var notificationService: NotificationService
+    @StateObject private var appUpdater: AppUpdater
+
+    init() {
+        AppConfigMigration.migrateIfNeeded()
+        _service = StateObject(wrappedValue: UsageService())
+        _codexProvider = StateObject(wrappedValue: CodexProvider())
+        _historyService = StateObject(wrappedValue: UsageHistoryService())
+        _notificationService = StateObject(wrappedValue: NotificationService())
+        _appUpdater = StateObject(wrappedValue: AppUpdater())
+    }
 
     var body: some Scene {
         MenuBarExtra {
@@ -22,6 +31,7 @@ struct ClaudeUsageBarApp: App {
                 ? renderIcon(pct5h: service.pct5h, pct7d: service.pct7d)
                 : renderUnauthenticatedIcon()
             )
+                .help("Agent Usage Bar")
                 .task {
                     // Auto-mark existing users as setup-complete
                     if service.isAuthenticated && !UserDefaults.standard.bool(forKey: "setupComplete") {

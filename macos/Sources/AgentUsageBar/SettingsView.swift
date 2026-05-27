@@ -64,6 +64,7 @@ private func focusSettingsWindow() {
     DispatchQueue.main.async {
         NSApp.activate(ignoringOtherApps: true)
         if let window = NSApp.windows.last(where: { $0.isVisible && $0.canBecomeKey }) {
+            window.title = "Agent Usage Bar"
             window.makeKeyAndOrderFront(nil)
             window.orderFrontRegardless()
         }

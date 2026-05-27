@@ -1,5 +1,5 @@
 import XCTest
-@testable import ClaudeUsageBar
+@testable import AgentUsageBar
 
 final class UsageModelTests: XCTestCase {
     func testResetDateParsesTimestampWithoutTimezoneAsUTC() throws {

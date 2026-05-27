@@ -3,9 +3,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-APP_NAME="ClaudeUsageBar"
-ARTIFACT_PATH="${1:-$PROJECT_DIR/$APP_NAME.zip}"
-TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/claude-usage-bar-release.XXXXXX")"
+PRODUCT_NAME="AgentUsageBar"
+APP_NAME="Agent Usage Bar"
+ARTIFACT_PATH="${1:-$PROJECT_DIR/$PRODUCT_NAME.zip}"
+TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/agent-usage-bar-release.XXXXXX")"
 MOUNT_DIR="$TMP_DIR/mount"
 DMG_ATTACHED=0
 
@@ -25,7 +26,7 @@ fi
 verify_app_bundle() {
     local app_bundle="$1"
     local app_plist="$app_bundle/Contents/Info.plist"
-    local resource_bundle="$app_bundle/Contents/Resources/${APP_NAME}_${APP_NAME}.bundle"
+    local resource_bundle="$app_bundle/Contents/Resources/${PRODUCT_NAME}_${PRODUCT_NAME}.bundle"
     local sparkle_framework="$app_bundle/Contents/Frameworks/Sparkle.framework"
 
     echo "==> Verifying packaged resources..."

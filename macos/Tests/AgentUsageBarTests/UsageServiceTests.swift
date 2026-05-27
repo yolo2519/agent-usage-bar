@@ -1,5 +1,5 @@
 import XCTest
-@testable import ClaudeUsageBar
+@testable import AgentUsageBar
 
 @MainActor
 final class UsageServiceTests: XCTestCase {

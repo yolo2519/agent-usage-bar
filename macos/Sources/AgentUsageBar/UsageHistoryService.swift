@@ -14,8 +14,7 @@ class UsageHistoryService: ObservableObject {
     private static let flushInterval: TimeInterval = 300 // 5 minutes
 
     private static var historyFileURL: URL {
-        let dir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/claude-usage-bar", isDirectory: true)
+        let dir = AppConfigMigration.configDirectory
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("history.json")
     }
