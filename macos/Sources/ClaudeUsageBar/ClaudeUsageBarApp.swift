@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct ClaudeUsageBarApp: App {
     @StateObject private var service = UsageService()
+    @StateObject private var codexProvider = CodexProvider()
     @StateObject private var historyService = UsageHistoryService()
     @StateObject private var notificationService = NotificationService()
     @StateObject private var appUpdater = AppUpdater()
@@ -11,6 +12,7 @@ struct ClaudeUsageBarApp: App {
         MenuBarExtra {
             PopoverView(
                 service: service,
+                codexProvider: codexProvider,
                 historyService: historyService,
                 notificationService: notificationService,
                 appUpdater: appUpdater
@@ -29,6 +31,7 @@ struct ClaudeUsageBarApp: App {
                     service.historyService = historyService
                     service.notificationService = notificationService
                     service.startPolling()
+                    codexProvider.startPolling()
                 }
         }
         .menuBarExtraStyle(.window)

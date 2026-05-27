@@ -67,24 +67,30 @@ build_app_bundle() {
         exit 1
     fi
 
-    echo "==> Creating $APP_NAME.app bundle..."
-    rm -rf "$APP_BUNDLE"
-    mkdir -p "$APP_BUNDLE/Contents/MacOS"
-    mkdir -p "$APP_BUNDLE/Contents/Resources"
+    local staging_dir
+    local staged_app_bundle
+    staging_dir="$(mktemp -d "/private/tmp/claude-usage-bar-app.XXXXXX")"
+    staged_app_bundle="$staging_dir/$APP_NAME.app"
+    trap 'rm -rf "$staging_dir"' RETURN
 
-    cp "$PROJECT_DIR/Resources/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
-    cp "$binary" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
+    echo "==> Creating $APP_NAME.app bundle..."
+    rm -rf "$staged_app_bundle"
+    mkdir -p "$staged_app_bundle/Contents/MacOS"
+    mkdir -p "$staged_app_bundle/Contents/Resources"
+
+    cp "$PROJECT_DIR/Resources/Info.plist" "$staged_app_bundle/Contents/Info.plist"
+    cp "$binary" "$staged_app_bundle/Contents/MacOS/$APP_NAME"
 
     local app_version="${APP_VERSION:-$($PLIST_BUDDY -c 'Print :CFBundleShortVersionString' "$PROJECT_DIR/Resources/Info.plist")}"
     local app_build="${APP_BUILD:-$(version_to_build_number "$app_version")}"
 
-    "$PLIST_BUDDY" -c "Set :CFBundleShortVersionString $app_version" "$APP_BUNDLE/Contents/Info.plist"
-    "$PLIST_BUDDY" -c "Set :CFBundleVersion $app_build" "$APP_BUNDLE/Contents/Info.plist"
+    "$PLIST_BUDDY" -c "Set :CFBundleShortVersionString $app_version" "$staged_app_bundle/Contents/Info.plist"
+    "$PLIST_BUDDY" -c "Set :CFBundleVersion $app_build" "$staged_app_bundle/Contents/Info.plist"
 
     if [[ -n "${SU_FEED_URL:-}" ]]; then
-        "$PLUTIL" -replace SUFeedURL -string "$SU_FEED_URL" "$APP_BUNDLE/Contents/Info.plist"
+        "$PLUTIL" -replace SUFeedURL -string "$SU_FEED_URL" "$staged_app_bundle/Contents/Info.plist"
     else
-        "$PLUTIL" -remove SUFeedURL "$APP_BUNDLE/Contents/Info.plist" 2>/dev/null || true
+        "$PLUTIL" -remove SUFeedURL "$staged_app_bundle/Contents/Info.plist" 2>/dev/null || true
     fi
 
     local resource_bundle="$BUILD_DIR/release/${APP_NAME}_${APP_NAME}.bundle"
@@ -98,10 +104,10 @@ build_app_bundle() {
     fi
 
     echo "==> Bundling SwiftPM resources..."
-    ditto "$resource_bundle" "$APP_BUNDLE/Contents/Resources/$(basename "$resource_bundle")"
+    ditto "$resource_bundle" "$staged_app_bundle/Contents/Resources/$(basename "$resource_bundle")"
 
     echo "==> Compiling Asset Catalog..."
-    actool --compile "$APP_BUNDLE/Contents/Resources" \
+    actool --compile "$staged_app_bundle/Contents/Resources" \
            --platform macosx \
            --minimum-deployment-target 14.0 \
            --app-icon AppIcon \
@@ -112,19 +118,24 @@ build_app_bundle() {
     sparkle_framework="$(find "$BUILD_DIR" -path '*/Sparkle.framework' -type d | head -n 1 || true)"
     if [[ -n "$sparkle_framework" ]]; then
         echo "==> Bundling Sparkle.framework..."
-        mkdir -p "$APP_BUNDLE/Contents/Frameworks"
-        ditto "$sparkle_framework" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
+        mkdir -p "$staged_app_bundle/Contents/Frameworks"
+        ditto "$sparkle_framework" "$staged_app_bundle/Contents/Frameworks/Sparkle.framework"
     fi
 
+    xattr -cr "$staged_app_bundle"
+
     echo "==> Codesigning (ad-hoc)..."
-    if [[ -d "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework" ]]; then
+    if [[ -d "$staged_app_bundle/Contents/Frameworks/Sparkle.framework" ]]; then
         while IFS= read -r nested_bundle; do
             codesign --force --sign - "$nested_bundle"
-        done < <(find "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework" \
+        done < <(find "$staged_app_bundle/Contents/Frameworks/Sparkle.framework" \
             \( -name '*.app' -o -name '*.xpc' \) -type d | sort)
-        codesign --force --sign - "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
+        codesign --force --sign - "$staged_app_bundle/Contents/Frameworks/Sparkle.framework"
     fi
-    codesign --force --sign - "$APP_BUNDLE"
+    codesign --force --sign - "$staged_app_bundle"
+
+    rm -rf "$APP_BUNDLE"
+    ditto "$staged_app_bundle" "$APP_BUNDLE"
 
     echo "==> Built $APP_BUNDLE"
     codesign -v "$APP_BUNDLE"

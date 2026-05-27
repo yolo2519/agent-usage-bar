@@ -2,6 +2,7 @@ import SwiftUI
 
 struct PopoverView: View {
     @ObservedObject var service: UsageService
+    @ObservedObject var codexProvider: CodexProvider
     @ObservedObject var historyService: UsageHistoryService
     @ObservedObject var notificationService: NotificationService
     @ObservedObject var appUpdater: AppUpdater
@@ -64,14 +65,10 @@ struct PopoverView: View {
 
     @ViewBuilder
     private var usageView: some View {
-        UsageBucketRow(
-            label: "5-Hour Window",
-            bucket: service.usage?.fiveHour
-        )
-
-        UsageBucketRow(
-            label: "7-Day Window",
-            bucket: service.usage?.sevenDay
+        ProviderUsageSnapshotView(
+            snapshot: service.currentSnapshot,
+            showsCredits: false,
+            showsMetadata: false
         )
 
         if let opus = service.usage?.sevenDayOpus,
@@ -80,9 +77,9 @@ struct PopoverView: View {
             Text("Per-Model (7 day)")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-            UsageBucketRow(label: "Opus", bucket: opus)
+            UsageLimitRow(bucket: service.normalizedBucketForDisplay(label: "Opus", bucket: opus))
             if let sonnet = service.usage?.sevenDaySonnet {
-                UsageBucketRow(label: "Sonnet", bucket: sonnet)
+                UsageLimitRow(bucket: service.normalizedBucketForDisplay(label: "Sonnet", bucket: sonnet))
             }
         }
 
@@ -93,6 +90,9 @@ struct PopoverView: View {
 
         Divider()
         UsageChartView(historyService: historyService)
+
+        Divider()
+        CodexUsageSection(provider: codexProvider)
 
         if let error = service.lastError {
             Divider()
@@ -123,7 +123,10 @@ struct PopoverView: View {
             settingsButton
             Spacer()
             Button("Refresh") {
-                Task { await service.fetchUsage() }
+                Task {
+                    await service.fetchUsage()
+                    await codexProvider.refresh()
+                }
             }
             .buttonStyle(.borderless)
             .font(.caption)
@@ -281,33 +284,149 @@ private struct CodeEntryView: View {
     }
 }
 
-private struct UsageBucketRow: View {
-    let label: String
-    let bucket: UsageBucket?
+private struct ProviderUsageSnapshotView: View {
+    let snapshot: NormalizedUsageSnapshot
+    let showsCredits: Bool
+    let showsMetadata: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let primary = snapshot.primaryBucket {
+                UsageLimitRow(bucket: primary)
+            }
+            if let secondary = snapshot.secondaryBucket {
+                UsageLimitRow(bucket: secondary)
+            }
+            if showsCredits, let credits = snapshot.credits {
+                ProviderCreditsRow(credits: credits)
+            }
+            if showsMetadata {
+                ProviderMetadataRows(snapshot: snapshot)
+            }
+        }
+    }
+}
+
+private struct CodexUsageSection: View {
+    @ObservedObject var provider: CodexProvider
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(provider.displayName)
+                    .font(.headline)
+                Spacer()
+                if provider.isRefreshing {
+                    ProgressView()
+                        .controlSize(.small)
+                        .scaleEffect(0.6)
+                }
+            }
+
+            if let snapshot = provider.snapshot {
+                ProviderUsageSnapshotView(
+                    snapshot: snapshot,
+                    showsCredits: true,
+                    showsMetadata: true
+                )
+
+                if let updated = provider.lastUpdated {
+                    Text("Updated \(updated, style: .relative) ago")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Label("Codex: unavailable", systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+private struct UsageLimitRow: View {
+    let bucket: NormalizedUsageBucket
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(label)
+                Text(bucket.label)
                     .font(.subheadline)
                 Spacer()
-                Text(percentageText)
+                Text(bucket.percentageText)
                     .font(.subheadline)
                     .monospacedDigit()
             }
-            ProgressView(value: (bucket?.utilization ?? 0) / 100.0, total: 1.0)
-                .tint(colorForPct((bucket?.utilization ?? 0) / 100.0))
-            if let resetDate = bucket?.resetsAtDate {
+            ProgressView(value: bucket.progressFraction ?? 0, total: 1.0)
+                .tint(colorForPct(bucket.consumedFraction ?? 0))
+            if let resetDate = bucket.resetsAt {
                 Text("Resets \(resetDate, style: .relative)")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
         }
     }
+}
 
-    private var percentageText: String {
-        guard let pct = bucket?.utilization else { return "—" }
-        return "\(Int(round(pct)))%"
+private struct ProviderCreditsRow: View {
+    let credits: NormalizedCredits
+
+    var body: some View {
+        HStack {
+            Text(credits.label)
+                .font(.subheadline)
+            Spacer()
+            Text(valueText)
+                .font(.subheadline)
+                .monospacedDigit()
+        }
+    }
+
+    private var valueText: String {
+        if credits.unlimited { return "Unlimited" }
+        guard let balance = credits.balance else { return "-" }
+        return Self.formatter.string(from: balance as NSDecimalNumber)
+            ?? "\(balance)"
+    }
+
+    private static let formatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.maximumFractionDigits = 0
+        formatter.usesGroupingSeparator = true
+        return formatter
+    }()
+}
+
+private struct ProviderMetadataRows: View {
+    let snapshot: NormalizedUsageSnapshot
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            if let account = snapshot.account, account.isEmpty == false {
+                metadataRow(label: "Account", value: account)
+            }
+            if let plan = snapshot.plan, plan.isEmpty == false {
+                metadataRow(label: "Plan", value: plan)
+            }
+            if let model = snapshot.model, model.isEmpty == false {
+                metadataRow(label: "Model", value: model)
+            }
+        }
+    }
+
+    private func metadataRow(label: String, value: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text(value)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
     }
 }
 
