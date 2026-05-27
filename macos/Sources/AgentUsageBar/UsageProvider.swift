@@ -62,7 +62,7 @@ enum QuotaHealth: Equatable {
         values.compactMap { $0 }.max { $0.severity < $1.severity }
     }
 
-    private var severity: Int {
+    var severity: Int {
         switch self {
         case .healthy:
             return 0

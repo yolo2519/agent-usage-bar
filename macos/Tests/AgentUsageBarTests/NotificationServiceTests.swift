@@ -27,21 +27,24 @@ final class NotificationServiceTests: XCTestCase {
         XCTAssertEqual(service.settings(for: "gemini"), .off)
     }
 
-    func testNoAlertsWhenThresholdsAreOff() {
+    func testBandAlertsFireWhenNumericThresholdsAreOff() {
         var fired = Set<String>()
+        var firedHealth = [String: QuotaHealth]()
 
         let alerts = thresholdAlerts(
             providerId: UsageProviderID.codex,
             snapshot: snapshot(primaryLeft: 8, secondaryLeft: 12),
             settings: .off,
-            firedBucketKeys: &fired
+            firedBucketKeys: &fired,
+            firedHealthByBucket: &firedHealth
         )
 
-        XCTAssertTrue(alerts.isEmpty)
+        XCTAssertEqual(alerts.map(\.reason), [.healthBand, .healthBand])
     }
 
     func testFiresWhenPercentLeftIsAtOrBelowThreshold() {
         var fired = Set<String>()
+        var firedHealth = [String: QuotaHealth]()
         let reset = Date(timeIntervalSince1970: 1_779_835_567)
 
         let alerts = thresholdAlerts(
@@ -52,7 +55,8 @@ final class NotificationServiceTests: XCTestCase {
                 weeklyThresholdPct: 10,
                 extraUsageEnabled: false
             ),
-            firedBucketKeys: &fired
+            firedBucketKeys: &fired,
+            firedHealthByBucket: &firedHealth
         )
 
         XCTAssertEqual(alerts, [
@@ -69,6 +73,7 @@ final class NotificationServiceTests: XCTestCase {
 
     func testDoesNotSpamWhileBucketRemainsBelowThreshold() {
         var fired = Set<String>()
+        var firedHealth = [String: QuotaHealth]()
         let settings = ProviderNotificationSettings(
             fiveHourThresholdPct: 25,
             weeklyThresholdPct: nil,
@@ -79,20 +84,24 @@ final class NotificationServiceTests: XCTestCase {
             providerId: UsageProviderID.codex,
             snapshot: snapshot(primaryLeft: 20),
             settings: settings,
-            firedBucketKeys: &fired
+            firedBucketKeys: &fired,
+            firedHealthByBucket: &firedHealth
         )
         let second = thresholdAlerts(
             providerId: UsageProviderID.codex,
             snapshot: snapshot(primaryLeft: 10),
             settings: settings,
-            firedBucketKeys: &fired
+            firedBucketKeys: &fired,
+            firedHealthByBucket: &firedHealth
         )
 
-        XCTAssertTrue(second.isEmpty)
+        XCTAssertEqual(second.map(\.reason), [.healthBand])
+        XCTAssertEqual(second.first?.health, .warning)
     }
 
     func testResetsFiredFlagWhenPercentLeftRisesAboveThreshold() {
         var fired = Set<String>()
+        var firedHealth = [String: QuotaHealth]()
         let settings = ProviderNotificationSettings(
             fiveHourThresholdPct: 25,
             weeklyThresholdPct: nil,
@@ -103,19 +112,22 @@ final class NotificationServiceTests: XCTestCase {
             providerId: UsageProviderID.codex,
             snapshot: snapshot(primaryLeft: 20),
             settings: settings,
-            firedBucketKeys: &fired
+            firedBucketKeys: &fired,
+            firedHealthByBucket: &firedHealth
         )
         _ = thresholdAlerts(
             providerId: UsageProviderID.codex,
             snapshot: snapshot(primaryLeft: 40),
             settings: settings,
-            firedBucketKeys: &fired
+            firedBucketKeys: &fired,
+            firedHealthByBucket: &firedHealth
         )
         let third = thresholdAlerts(
             providerId: UsageProviderID.codex,
             snapshot: snapshot(primaryLeft: 15),
             settings: settings,
-            firedBucketKeys: &fired
+            firedBucketKeys: &fired,
+            firedHealthByBucket: &firedHealth
         )
 
         XCTAssertEqual(third.map(\.bucketId), ["primary"])
@@ -123,6 +135,7 @@ final class NotificationServiceTests: XCTestCase {
 
     func testTracksProviderBucketStateIndependently() {
         var fired = Set<String>()
+        var firedHealth = [String: QuotaHealth]()
         let settings = ProviderNotificationSettings(
             fiveHourThresholdPct: 25,
             weeklyThresholdPct: nil,
@@ -133,16 +146,96 @@ final class NotificationServiceTests: XCTestCase {
             providerId: UsageProviderID.claude,
             snapshot: snapshot(displayName: "Claude", primaryLeft: 20),
             settings: settings,
-            firedBucketKeys: &fired
+            firedBucketKeys: &fired,
+            firedHealthByBucket: &firedHealth
         )
         let codexAlerts = thresholdAlerts(
             providerId: UsageProviderID.codex,
             snapshot: snapshot(primaryLeft: 20),
             settings: settings,
-            firedBucketKeys: &fired
+            firedBucketKeys: &fired,
+            firedHealthByBucket: &firedHealth
         )
 
         XCTAssertEqual(codexAlerts.map(\.providerId), [UsageProviderID.codex])
+    }
+
+    func testBandNotificationsFireOnWarningAndCriticalCrossingsOnly() {
+        var fired = Set<String>()
+        var firedHealth = [String: QuotaHealth]()
+        let settings = ProviderNotificationSettings(
+            fiveHourThresholdPct: nil,
+            weeklyThresholdPct: nil,
+            extraUsageEnabled: false
+        )
+
+        XCTAssertTrue(thresholdAlerts(
+            providerId: UsageProviderID.codex,
+            snapshot: snapshot(primaryLeft: 25),
+            settings: settings,
+            firedBucketKeys: &fired,
+            firedHealthByBucket: &firedHealth
+        ).isEmpty)
+
+        let warning = thresholdAlerts(
+            providerId: UsageProviderID.codex,
+            snapshot: snapshot(primaryLeft: 15),
+            settings: settings,
+            firedBucketKeys: &fired,
+            firedHealthByBucket: &firedHealth
+        )
+        XCTAssertEqual(warning.map(\.health), [.warning])
+
+        XCTAssertTrue(thresholdAlerts(
+            providerId: UsageProviderID.codex,
+            snapshot: snapshot(primaryLeft: 12),
+            settings: settings,
+            firedBucketKeys: &fired,
+            firedHealthByBucket: &firedHealth
+        ).isEmpty)
+
+        let critical = thresholdAlerts(
+            providerId: UsageProviderID.codex,
+            snapshot: snapshot(primaryLeft: 8),
+            settings: settings,
+            firedBucketKeys: &fired,
+            firedHealthByBucket: &firedHealth
+        )
+        XCTAssertEqual(critical.map(\.health), [.critical])
+    }
+
+    func testBandNotificationResetsAfterHealthImproves() {
+        var fired = Set<String>()
+        var firedHealth = [String: QuotaHealth]()
+        let settings = ProviderNotificationSettings(
+            fiveHourThresholdPct: nil,
+            weeklyThresholdPct: nil,
+            extraUsageEnabled: false
+        )
+
+        _ = thresholdAlerts(
+            providerId: UsageProviderID.codex,
+            snapshot: snapshot(primaryLeft: 8),
+            settings: settings,
+            firedBucketKeys: &fired,
+            firedHealthByBucket: &firedHealth
+        )
+        _ = thresholdAlerts(
+            providerId: UsageProviderID.codex,
+            snapshot: snapshot(primaryLeft: 55),
+            settings: settings,
+            firedBucketKeys: &fired,
+            firedHealthByBucket: &firedHealth
+        )
+        let warningAgain = thresholdAlerts(
+            providerId: UsageProviderID.codex,
+            snapshot: snapshot(primaryLeft: 15),
+            settings: settings,
+            firedBucketKeys: &fired,
+            firedHealthByBucket: &firedHealth
+        )
+
+        XCTAssertEqual(warningAgain.map(\.health), [.warning])
     }
 
     private func snapshot(

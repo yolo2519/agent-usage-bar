@@ -3,12 +3,39 @@ import AppKit
 @preconcurrency import UserNotifications
 
 struct ProviderThresholdAlert: Equatable {
+    enum Reason: Equatable {
+        case customThreshold
+        case healthBand
+    }
+
     let providerId: String
     let providerName: String
     let bucketId: String
     let bucketLabel: String
     let percentLeft: Int
     let resetsAt: Date?
+    let health: QuotaHealth?
+    let reason: Reason
+
+    init(
+        providerId: String,
+        providerName: String,
+        bucketId: String,
+        bucketLabel: String,
+        percentLeft: Int,
+        resetsAt: Date?,
+        health: QuotaHealth? = nil,
+        reason: Reason = .customThreshold
+    ) {
+        self.providerId = providerId
+        self.providerName = providerName
+        self.bucketId = bucketId
+        self.bucketLabel = bucketLabel
+        self.percentLeft = percentLeft
+        self.resetsAt = resetsAt
+        self.health = health
+        self.reason = reason
+    }
 }
 
 /// Pure logic: fire once when a bucket is at/below its percent-left threshold,
@@ -17,9 +44,11 @@ func thresholdAlerts(
     providerId: String,
     snapshot: NormalizedUsageSnapshot,
     settings: ProviderNotificationSettings,
-    firedBucketKeys: inout Set<String>
+    firedBucketKeys: inout Set<String>,
+    firedHealthByBucket: inout [String: QuotaHealth]
 ) -> [ProviderThresholdAlert] {
-    var alerts = [ProviderThresholdAlert]()
+    var numericAlerts = [ProviderThresholdAlert]()
+    var healthAlerts = [ProviderThresholdAlert]()
 
     evaluateBucket(
         providerId: providerId,
@@ -28,7 +57,15 @@ func thresholdAlerts(
         bucket: snapshot.primaryBucket,
         threshold: settings.fiveHourThresholdPct,
         firedBucketKeys: &firedBucketKeys,
-        alerts: &alerts
+        alerts: &numericAlerts
+    )
+    evaluateHealthBucket(
+        providerId: providerId,
+        providerName: snapshot.displayName,
+        bucketId: "primary",
+        bucket: snapshot.primaryBucket,
+        firedHealthByBucket: &firedHealthByBucket,
+        alerts: &healthAlerts
     )
 
     evaluateBucket(
@@ -38,10 +75,18 @@ func thresholdAlerts(
         bucket: snapshot.secondaryBucket,
         threshold: settings.weeklyThresholdPct,
         firedBucketKeys: &firedBucketKeys,
-        alerts: &alerts
+        alerts: &numericAlerts
+    )
+    evaluateHealthBucket(
+        providerId: providerId,
+        providerName: snapshot.displayName,
+        bucketId: "secondary",
+        bucket: snapshot.secondaryBucket,
+        firedHealthByBucket: &firedHealthByBucket,
+        alerts: &healthAlerts
     )
 
-    return alerts
+    return mergedAlerts(numericAlerts: numericAlerts, healthAlerts: healthAlerts)
 }
 
 private func evaluateBucket(
@@ -76,6 +121,53 @@ private func evaluateBucket(
     }
 }
 
+private func evaluateHealthBucket(
+    providerId: String,
+    providerName: String,
+    bucketId: String,
+    bucket: NormalizedUsageBucket?,
+    firedHealthByBucket: inout [String: QuotaHealth],
+    alerts: inout [ProviderThresholdAlert]
+) {
+    let key = "\(providerId):\(bucketId)"
+    guard let bucket else {
+        firedHealthByBucket.removeValue(forKey: key)
+        return
+    }
+
+    let health = bucket.quotaHealth
+    guard health == .warning || health == .critical else {
+        firedHealthByBucket.removeValue(forKey: key)
+        return
+    }
+
+    let previouslyFired = firedHealthByBucket[key]
+    firedHealthByBucket[key] = health
+
+    if let previouslyFired, health.severity <= previouslyFired.severity {
+        return
+    }
+
+    alerts.append(ProviderThresholdAlert(
+        providerId: providerId,
+        providerName: providerName,
+        bucketId: bucketId,
+        bucketLabel: bucket.label,
+        percentLeft: bucket.percentLeft,
+        resetsAt: bucket.resetsAt,
+        health: health,
+        reason: .healthBand
+    ))
+}
+
+private func mergedAlerts(
+    numericAlerts: [ProviderThresholdAlert],
+    healthAlerts: [ProviderThresholdAlert]
+) -> [ProviderThresholdAlert] {
+    let healthKeys = Set(healthAlerts.map { "\($0.providerId):\($0.bucketId)" })
+    return numericAlerts.filter { !healthKeys.contains("\($0.providerId):\($0.bucketId)") } + healthAlerts
+}
+
 private class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
@@ -103,6 +195,7 @@ class NotificationService: ObservableObject {
     @Published private(set) var notificationPermissionDenied = false
 
     private var firedBucketKeys = Set<String>()
+    private var firedHealthByBucket = [String: QuotaHealth]()
     private var legacyThresholdExtra: Int
     private let userDefaults: UserDefaults
     private let systemNotificationsEnabled: Bool
@@ -200,7 +293,8 @@ class NotificationService: ObservableObject {
             providerId: providerId,
             snapshot: snapshot,
             settings: settings,
-            firedBucketKeys: &firedBucketKeys
+            firedBucketKeys: &firedBucketKeys,
+            firedHealthByBucket: &firedHealthByBucket
         )
 
         for alert in alerts {
@@ -237,7 +331,11 @@ class NotificationService: ObservableObject {
     }
 
     private func notificationBody(for alert: ProviderThresholdAlert) -> String {
-        var body = "\(alert.providerName) \(alert.bucketLabel) limit at \(alert.percentLeft)%"
+        var body = "\(alert.providerName) \(alert.bucketLabel) limit"
+        if alert.reason == .healthBand, let health = alert.health {
+            body += " \(health)"
+        }
+        body += " at \(alert.percentLeft)%"
         if let resetsAt = alert.resetsAt {
             body += " - resets \(Self.resetTimeFormatter.string(from: resetsAt))"
         }
